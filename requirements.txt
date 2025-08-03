@@ -4,3 +4,4 @@ openai
 requests
 newspaper3k
 python-dotenv
+lxml[html_clean]
