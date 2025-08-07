@@ -6,16 +6,20 @@ from dotenv import load_dotenv
 import openai
 from fastapi.middleware.cors import CORSMiddleware
 from newspaper import Article
+import logging
 
+# Carga variables de entorno (.env)
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
 
+# CORS: admite local y dominio Vercel (¡sin barra final!)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  
-        "https://noticiasfalsas-frontend.vercel.app/"  
+        "http://localhost:3000",
+        "https://noticiasfalsas-frontend.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -31,6 +35,7 @@ NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 NEWSAPI_ENDPOINT = "https://newsapi.org/v2/everything"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Cliente OpenAI (requiere openai>=1.3.8)
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 def extract_text_from_url(url: str) -> str:
@@ -40,7 +45,8 @@ def extract_text_from_url(url: str) -> str:
         article.parse()
         text = article.text.strip()
         return text
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Error extrayendo texto del enlace: {e}")
         return ""
 
 def search_gnews(query):
@@ -59,8 +65,8 @@ def search_gnews(query):
                 {"title": article["title"], "url": article["url"]}
                 for article in data.get("articles", [])
             ]
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"Error en búsqueda GNews: {e}")
     return results
 
 def search_newsapi(query):
@@ -79,13 +85,21 @@ def search_newsapi(query):
                 {"title": article["title"], "url": article["url"]}
                 for article in data.get("articles", [])
             ]
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"Error en búsqueda NewsAPI: {e}")
     return results
 
 @app.post("/verify")
 def verify_news(news: NewsRequest):
     query = news.text.strip()
+
+    # Chequeo de API keys antes de nada
+    if not OPENAI_API_KEY or not GNEWS_API_KEY or not NEWSAPI_KEY:
+        raise HTTPException(status_code=500, detail="Alguna API KEY no está configurada en el entorno.")
+
+    if not query:
+        raise HTTPException(status_code=400, detail="Texto vacío")
+
     sources = []
     noticia_texto = query
 
@@ -162,9 +176,15 @@ def verify_news(news: NewsRequest):
         )
         analysis = completion.choices[0].message.content
     except Exception as e:
+        logging.error(f"Error al consultar OpenAI: {e}")
         raise HTTPException(status_code=500, detail=f"Error al consultar OpenAI: {str(e)}")
 
     return {
         "sources": sources,
         "openai_analysis": analysis
     }
+
+# Endpoint básico para test de vida (opcional)
+@app.get("/ping")
+def ping():
+    return {"ok": True}
